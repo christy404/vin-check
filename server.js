@@ -4,20 +4,23 @@ import Stripe from "stripe";
 import Mailjet from "node-mailjet";
 import dotenv from "dotenv";
 import cors from "cors";
+import bodyParser from "body-parser";
 import path from "path";
 import { fileURLToPath } from "url";
 
 dotenv.config();
 
-// Setup
+// App setup
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({ extended: true }));
 
-// Public folder
+// Path setup
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Serve frontend
 app.use(express.static(path.join(__dirname, "public")));
 
 // Stripe
@@ -29,58 +32,52 @@ const mailjet = Mailjet.apiConnect(
   process.env.MAILJET_SECRET_KEY
 );
 
-// Canada free VIN API (test only)
-const VIN_API = "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValuesExtended";
-
-// -----------------------------
-// 1️⃣ PREVIEW VIN (before payment)
-// -----------------------------
-app.get("/preview", async (req, res) => {
+// =====================
+// 1. PREVIEW VIN (Before Payment)
+// =====================
+app.get("/preview-vin", async (req, res) => {
   try {
     const vin = req.query.vin;
 
-    if (!vin) return res.json({ error: "VIN is required" });
+    const apiURL = `https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/${vin}?format=json`;
 
-    const response = await axios.get(
-      `${VIN_API}/${vin}?format=json`
-    );
+    const response = await axios.get(apiURL);
 
-    const data = response.data.Results[0];
+    const results = response.data.Results;
+    const make = results.find(r => r.Variable === "Make")?.Value || "Unknown";
+    const model = results.find(r => r.Variable === "Model")?.Value || "Unknown";
 
     res.json({
       success: true,
-      make: data.Make,
-      model: data.Model,
-      year: data.ModelYear
+      vehicle: `${make} ${model}`
     });
 
-  } catch (err) {
-    res.json({ error: "Invalid VIN" });
+  } catch (error) {
+    res.json({ success: false, message: "VIN lookup failed" });
   }
 });
 
-// -----------------------------
-// 2️⃣ CREATE STRIPE CHECKOUT SESSION
-// -----------------------------
-app.post("/create-checkout", async (req, res) => {
+// =====================
+// 2. STRIPE PAYMENT
+// =====================
+app.post("/create-checkout-session", async (req, res) => {
   try {
     const { vin, email } = req.body;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
-      customer_email: email,
       line_items: [
         {
           price_data: {
-            currency: "cad",
-            product_data: {
-              name: `Full VIN Report (${vin})`
-            },
+            currency: "usd",
             unit_amount: 299, // $2.99
+            product_data: {
+              name: `VIN Lookup for ${vin}`
+            }
           },
-          quantity: 1,
-        },
+          quantity: 1
+        }
       ],
       success_url: `${process.env.DOMAIN}/success.html?vin=${vin}&email=${email}`,
       cancel_url: `${process.env.DOMAIN}/cancel.html`
@@ -88,57 +85,40 @@ app.post("/create-checkout", async (req, res) => {
 
     res.json({ url: session.url });
 
-  } catch (err) {
-    res.json({ error: "Stripe error" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
-// -----------------------------
-// 3️⃣ SEND VIN REPORT EMAIL AFTER PAYMENT
-// -----------------------------
-app.post("/send-report", async (req, res) => {
+// =====================
+// 3. SEND EMAIL AFTER SUCCESS PAGE LOADS
+// =====================
+app.post("/send-email", async (req, res) => {
   try {
     const { vin, email } = req.body;
 
-    const response = await axios.get(
-      `${VIN_API}/${vin}?format=json`
-    );
+    const response = await axios.get(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/${vin}?format=json`);
 
-    const data = response.data.Results[0];
-
-    await mailjet
-      .post("send", { version: "v3.1" })
-      .request({
-        Messages: [
-          {
-            From: {
-              Email: process.env.SEND_FROM,
-              Name: "VIN Check Canada"
-            },
-            To: [{ Email: email }],
-            Subject: `Your VIN Report for ${vin}`,
-            TextPart: `VIN Report\nMake: ${data.Make}\nModel: ${data.Model}\nYear: ${data.ModelYear}`,
-            HTMLPart: `
-              <h2>Your VIN Report</h2>
-              <p><strong>VIN:</strong> ${vin}</p>
-              <p><strong>Make:</strong> ${data.Make}</p>
-              <p><strong>Model:</strong> ${data.Model}</p>
-              <p><strong>Year:</strong> ${data.ModelYear}</p>
-            `
-          }
-        ]
-      });
+    await mailjet.post("send", { version: "v3.1" }).request({
+      Messages: [
+        {
+          From: { Email: process.env.SEND_FROM, Name: "VIN Report" },
+          To: [{ Email: email }],
+          Subject: `VIN Report for ${vin}`,
+          HTMLPart: `<pre>${JSON.stringify(response.data, null, 2)}</pre>`
+        }
+      ]
+    });
 
     res.json({ success: true });
 
-  } catch (err) {
-    res.json({ error: "Email error" });
+  } catch (error) {
+    res.json({ success: false, error: error.message });
   }
 });
 
-// -----------------------------
-// 4️⃣ START SERVER
-// -----------------------------
-app.listen(process.env.PORT || 10000, () => {
-  console.log("Server running...");
-});
+// =====================
+// SERVER START
+// =====================
+const port = process.env.PORT || 10000;
+app.listen(port, () => console.log("Server running on port", port));
