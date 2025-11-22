@@ -2,13 +2,13 @@
 <p>Your report will be emailed shortly.</p>
 
 <script>
-const url = new URL(window.location.href);
-const vin = url.searchParams.get("vin");
-const email = url.searchParams.get("email");
+const params = new URLSearchParams(window.location.search);
+const vin = params.get("vin");
+const email = params.get("email");
 
 fetch("/send-report", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ vin, email })
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ vin, email })
 });
 </script>

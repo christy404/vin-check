@@ -1,41 +1,58 @@
 <!DOCTYPE html>
 <html>
+<head>
+  <title>VIN Check Canada</title>
+</head>
 <body>
-<h2>VIN Check</h2>
 
-<input id="vin" placeholder="Enter VIN">
-<input id="email" placeholder="Enter email">
+<h2>VIN Check (Canada)</h2>
 
-<button onclick="preview()">Preview Vehicle</button>
+<form id="vinForm">
+  <input id="vin" placeholder="Enter VIN" required><br><br>
+  <input id="email" placeholder="Enter Email" required><br><br>
+  <button type="submit">Preview Vehicle</button>
+</form>
 
-<p id="preview"></p>
+<h3 id="preview"></h3>
 
-<button onclick="pay()">Buy Full Report ($5)</button>
+<button id="payBtn" style="display:none;">Pay $4.99 & Get Full Report</button>
 
 <script>
-async function preview() {
-    const vin = document.getElementById("vin").value;
+let VIN = "";
+let EMAIL = "";
 
-    const res = await fetch(`/preview?vin=${vin}`);
-    const data = await res.json();
+document.getElementById("vinForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
 
-    document.getElementById("preview").innerText =
-        `Make: ${data.make} | Model: ${data.model}`;
-}
+  VIN = document.getElementById("vin").value;
+  EMAIL = document.getElementById("email").value;
 
-async function pay() {
-    const vin = document.getElementById("vin").value;
-    const email = document.getElementById("email").value;
+  const res = await fetch("/preview-vin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vin: VIN })
+  });
 
-    const res = await fetch("/create-checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vin, email })
-    });
+  const data = await res.json();
 
-    const data = await res.json();
-    window.location.href = data.url;
-}
+  if (data.carName) {
+    document.getElementById("preview").innerText = "Vehicle: " + data.carName;
+    document.getElementById("payBtn").style.display = "block";
+  } else {
+    document.getElementById("preview").innerText = "Invalid VIN";
+  }
+});
+
+document.getElementById("payBtn").addEventListener("click", async () => {
+  const res = await fetch("/create-checkout-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vin: VIN, email: EMAIL })
+  });
+
+  const data = await res.json();
+  if (data.url) window.location = data.url;
+});
 </script>
 
 </body>
