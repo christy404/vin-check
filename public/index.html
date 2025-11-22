@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>VIN Check</h2>
+
+<input id="vin" placeholder="Enter VIN">
+<input id="email" placeholder="Enter email">
+
+<button onclick="preview()">Preview Vehicle</button>
+
+<p id="preview"></p>
+
+<button onclick="pay()">Buy Full Report ($5)</button>
+
+<script>
+async function preview() {
+    const vin = document.getElementById("vin").value;
+    const res = await fetch(`/preview?vin=${vin}`);
+    const data = await res.json();
+    document.getElementById("preview").innerText =
+        `Make: ${data.make} | Model: ${data.model}`;
+}
+
+async function pay() {
+    const vin = document.getElementById("vin").value;
+    const email = document.getElementById("email").value;
+
+    const res = await fetch("/create-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vin, email })
+    });
+
+    const data = await res.json();
+    window.location.href = data.url;
+}
+</script>
+
+</body>
+</html>
